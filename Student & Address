@@ -1,0 +1,155 @@
+import jakarta.persistence.*;
+import jakarta.validation.constraints.*;
+import java.time.LocalDate;
+import java.util.List;
+
+@Entity
+public class Student {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Integer studentId;
+
+    @NotBlank
+    @Size(min = 3, max = 10)
+    private String studentName;
+
+    @Embedded
+    private Address address;
+
+    @Min(13)
+    private int age;
+
+    @Email
+    @Column(unique = true)
+    private String email;
+
+    @Pattern(regexp = "^[6789][0-9]{9}$")
+    private String mobile;
+
+    @Enumerated(EnumType.STRING)
+    private Gender gender;
+
+    private LocalDate dob;
+}
+
+@Embeddable
+class Address {
+    @Pattern(regexp = "^\\d{6}$", message = "Pincode must be 6 digits")
+    private String pincode;
+    private String state;
+    private String city;
+}
+
+enum Gender {
+    MALE, FEMALE;
+}
+
+class StudentDTO {
+    private String name;
+    private Address address;
+    private Integer age;
+}
+
+@Repository
+interface StudentRepository extends JpaRepository<Student, Integer> {
+    List<Student> findByAddress(Address address);
+    List<Student> findByAgeBetween(Integer startAge, Integer endAge);
+}
+
+@Service
+class StudentServiceImpl implements StudentService {
+    @Autowired
+    private StudentRepository studentRepository;
+
+    @Override
+    public List<Student> getAllStudentDetails() {
+        return studentRepository.findAll();
+    }
+
+    @Override
+    public List<Student> getStudentDetailsByAddress(Address address) {
+        return studentRepository.findByAddress(address);
+    }
+
+    @Override
+    public Student updateStudentEmail(Integer studentId, String oldEmail, String newEmail) {
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> new StudentException("Student not found"));
+        if (!student.getEmail().equals(oldEmail)) {
+            throw new StudentException("Old email does not match");
+        }
+        student.setEmail(newEmail);
+        return studentRepository.save(student);
+    }
+
+    @Override
+    public Student updateStudentAddress(Integer studentId, Address address) {
+        Student student = studentRepository.findById(studentId)
+                .orElseThrow(() -> new StudentException("Student not found"));
+        student.setAddress(address);
+        return studentRepository.save(student);
+    }
+
+    @Override
+    public List<Student> getStudentsBetweenAge(Integer startAge, Integer endAge) {
+        return studentRepository.findByAgeBetween(startAge, endAge);
+    }
+
+    @Override
+    public List<StudentDTO> getNameAddressAgeOfAllStudents() {
+        return studentRepository.findAll().stream()
+                .map(s -> new StudentDTO(s.getStudentName(), s.getAddress(), s.getAge()))
+                .toList();
+    }
+}
+
+@RestController
+@RequestMapping("/students")
+class StudentController {
+    @Autowired
+    private StudentService studentService;
+
+    @GetMapping
+    public List<Student> getAllStudents() {
+        return studentService.getAllStudentDetails();
+    }
+
+    @GetMapping("/by-address")
+    public List<Student> getStudentsByAddress(@RequestBody Address address) {
+        return studentService.getStudentDetailsByAddress(address);
+    }
+
+    @PutMapping("/{id}/email")
+    public Student updateEmail(@PathVariable Integer id, @RequestParam String oldEmail, @RequestParam String newEmail) {
+        return studentService.updateStudentEmail(id, oldEmail, newEmail);
+    }
+
+    @PutMapping("/{id}/address")
+    public Student updateAddress(@PathVariable Integer id, @RequestBody Address address) {
+        return studentService.updateStudentAddress(id, address);
+    }
+
+    @GetMapping("/between-age")
+    public List<Student> getStudentsByAge(@RequestParam Integer startAge, @RequestParam Integer endAge) {
+        return studentService.getStudentsBetweenAge(startAge, endAge);
+    }
+
+    @GetMapping("/name-address-age")
+    public List<StudentDTO> getStudentDTOs() {
+        return studentService.getNameAddressAgeOfAllStudents();
+    }
+}
+
+@ControllerAdvice
+class GlobalExceptionHandler {
+    @ExceptionHandler(StudentException.class)
+    public ResponseEntity<String> handleStudentException(StudentException e) {
+        return new ResponseEntity<>(e.getMessage(), HttpStatus.BAD_REQUEST);
+    }
+}
+
+class StudentException extends RuntimeException {
+    public StudentException(String message) {
+        super(message);
+    }
+}
